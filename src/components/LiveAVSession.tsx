@@ -16,9 +16,10 @@ import {
 interface LiveAVSessionProps {
   instructions: string;
   scenarioGoal: string;
+  onSessionEnd?: (lastFrameDataUrl: string, transcript: string[]) => void;
 }
 
-export default function LiveAVSession({ instructions, scenarioGoal }: LiveAVSessionProps) {
+export default function LiveAVSession({ instructions, scenarioGoal, onSessionEnd }: LiveAVSessionProps) {
   // Session connection states
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
@@ -43,6 +44,9 @@ export default function LiveAVSession({ instructions, scenarioGoal }: LiveAVSess
   const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
   const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const videoIntervalRef = useRef<any>(null);
+
+  // Spoken conversation transcript log during the active session
+  const transcriptRef = useRef<string[]>([]);
 
   // Audio queue refs to handle interruption cleanups
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -232,8 +236,16 @@ export default function LiveAVSession({ instructions, scenarioGoal }: LiveAVSess
           } else if (data.text) {
             // Append spoken transcriptions in a streaming subtitle style
             setBotSubtitles(data.text);
+            const msg = `AI Inspector: ${data.text}`;
+            if (transcriptRef.current[transcriptRef.current.length - 1] !== msg) {
+              transcriptRef.current.push(msg);
+            }
           } else if (data.userText) {
             setUserSubtitles(data.userText);
+            const msg = `User: ${data.userText}`;
+            if (transcriptRef.current[transcriptRef.current.length - 1] !== msg) {
+              transcriptRef.current.push(msg);
+            }
           } else if (data.interrupted) {
             clearPlaybackQueue();
           }
@@ -320,6 +332,25 @@ export default function LiveAVSession({ instructions, scenarioGoal }: LiveAVSess
 
   // Stop the session
   const stopSession = () => {
+    const hadActiveConnection = isConnected;
+    let lastFrameDataUrl = "";
+    
+    // Capture final frame BEFORE stopping tracks and closing the media stream
+    if (videoRef.current) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 480;
+        const ctx = canvas.getContext('2d');
+        if (ctx && videoRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          lastFrameDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        }
+      } catch (err) {
+        console.warn("Failed to capture final live frame snapshot:", err);
+      }
+    }
+
     setIsConnected(false);
     setIsConnecting(false);
     setMicLevel(0);
@@ -378,6 +409,11 @@ export default function LiveAVSession({ instructions, scenarioGoal }: LiveAVSess
         wsRef.current.close();
       } catch (_) {}
       wsRef.current = null;
+    }
+
+    // Trigger report generation in parent if session ended after active interaction
+    if (hadActiveConnection && onSessionEnd) {
+      onSessionEnd(lastFrameDataUrl, transcriptRef.current);
     }
   };
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LiveAVSession from './components/LiveAVSession';
+import SentinelPortal from './components/SentinelPortal';
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -26,7 +27,8 @@ import {
   CornerDownRight,
   Info,
   ChevronRight,
-  Maximize2
+  Maximize2,
+  ArrowLeft
 } from 'lucide-react';
 
 // Preset Room Scenarios
@@ -130,6 +132,7 @@ interface ChatMessage {
 
 export default function App() {
   // Config state
+  const [isPortalOpen, setIsPortalOpen] = useState<boolean>(true);
   const [sessionMode, setSessionMode] = useState<'static' | 'live'>('static');
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<number | null>(0);
   const [customImage, setCustomImage] = useState<string | null>(null);
@@ -163,6 +166,82 @@ export default function App() {
   const [activeReportTab, setActiveReportTab] = useState<'violations' | 'chat'>('violations');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePortalSelectScenario = (config: {
+    presetIndex: number | null;
+    goal: string;
+    instructions: string;
+  }) => {
+    if (config.presetIndex !== null) {
+      handlePresetSelect(config.presetIndex);
+    } else {
+      setSelectedPresetIndex(null);
+      setCustomImage(null);
+      setScenarioGoal(config.goal);
+      setCustomGoal(config.goal);
+      setInstructions(config.instructions);
+      setIsCustomGoalActive(true);
+      setReport(null);
+      setUserAnswers([]);
+      setError(null);
+      setChatMessages([
+        {
+          sender: 'ai',
+          text: `Hi! I have configured the custom scenario: **${config.goal}**. Let's inspect this area together! Upload a photo of the workspace or start a Live AV session, then we can run a full AI Safety Diagnostic.`,
+          timestamp: new Date()
+        }
+      ]);
+      setActiveReportTab('violations');
+    }
+    setIsPortalOpen(false);
+  };
+
+  const handleLiveSessionEnd = (lastFrameDataUrl: string, transcript: string[]) => {
+    // 1. Switch back to static mode so report output is visible
+    setSessionMode('static');
+    
+    // 2. Set custom image to the final snapshot of the live stream
+    if (lastFrameDataUrl) {
+      setCustomImage(lastFrameDataUrl);
+      setSelectedPresetIndex(null);
+    }
+
+    // 3. Reset previous states
+    setReport(null);
+    setError(null);
+
+    // 4. Build dynamic message summarizing the live discussion points
+    let greetingText = `Live AV Session completed! I have captured the final feed snapshot.`;
+    if (transcript.length > 0) {
+      const displayTranscript = transcript.slice(-4).map(t => `- ${t}`).join('\n');
+      greetingText += `\n\n**Discussed during live audit:**\n${displayTranscript}`;
+    }
+    
+    setChatMessages([
+      {
+        sender: 'ai',
+        text: `${greetingText}\n\nGenerating your professional Compliance & Safety report now. Please hold on...`,
+        timestamp: new Date()
+      }
+    ]);
+    setActiveReportTab('violations');
+
+    // 5. Package the live conversation transcript as answered question context so /api/inspect integrates it fully
+    const customAnswerLog: typeof userAnswers = transcript.length > 0 ? [
+      {
+        id: "live-transcript",
+        question: "Summary of discussion points covered during the Live AV inspection",
+        answer: transcript.join("\n")
+      }
+    ] : [];
+
+    setUserAnswers(customAnswerLog);
+
+    // 6. Automatically trigger inspection using the last frame & instructions
+    setTimeout(() => {
+      triggerInspection(customAnswerLog, lastFrameDataUrl || undefined);
+    }, 200);
+  };
 
   // Sync preset selections
   const handlePresetSelect = (index: number) => {
@@ -284,14 +363,14 @@ export default function App() {
   };
 
   // Trigger safety analysis api
-  const triggerInspection = async (updatedAnswers: typeof userAnswers = []) => {
+  const triggerInspection = async (updatedAnswers: typeof userAnswers = [], imageOverride?: string) => {
     setIsAnalyzing(true);
     setError(null);
     setActiveMarkerId(null);
 
     let imageBase64 = "";
     try {
-      const sourceImage = selectedPresetIndex !== null ? PRESETS[selectedPresetIndex].imageUrl : customImage;
+      const sourceImage = imageOverride || (selectedPresetIndex !== null ? PRESETS[selectedPresetIndex].imageUrl : customImage);
       if (!sourceImage) {
         throw new Error("Please select a preset room or upload an image to analyze.");
       }
@@ -563,6 +642,16 @@ export default function App() {
     return customImage;
   };
 
+  if (isPortalOpen) {
+    return (
+      <SentinelPortal 
+        presets={PRESETS} 
+        onSelectScenario={handlePortalSelectScenario} 
+        userName="Akarsh"
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans antialiased pb-12">
       {/* Header */}
@@ -578,7 +667,15 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex items-center gap-3 self-start md:self-auto">
+            <button
+              onClick={() => setIsPortalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer mr-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+              <span>Sentinel Portal</span>
+            </button>
+
             <span className="flex h-2.5 w-2.5 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
@@ -783,7 +880,11 @@ export default function App() {
             </div>
 
             {sessionMode === 'live' ? (
-              <LiveAVSession instructions={instructions} scenarioGoal={scenarioGoal} />
+              <LiveAVSession 
+                instructions={instructions} 
+                scenarioGoal={scenarioGoal} 
+                onSessionEnd={handleLiveSessionEnd}
+              />
             ) : (
               <>
                 {/* Vision Stage Card */}
