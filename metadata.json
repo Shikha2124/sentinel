@@ -1,6 +1,6 @@
 {
   "name": "AI Safety Inspector",
   "description": "An AI-powered room and area inspector for safety compliance, structural integrity, and thermal hazard simulation.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

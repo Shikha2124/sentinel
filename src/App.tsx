@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import LiveAVSession from './components/LiveAVSession';
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -121,8 +122,15 @@ interface InspectionReport {
   doubtQuestions: DoubtQuestion[];
 }
 
+interface ChatMessage {
+  sender: 'user' | 'ai';
+  text: string;
+  timestamp: Date;
+}
+
 export default function App() {
   // Config state
+  const [sessionMode, setSessionMode] = useState<'static' | 'live'>('static');
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<number | null>(0);
   const [customImage, setCustomImage] = useState<string | null>(null);
   const [instructions, setInstructions] = useState<string>(PRESETS[0].guidelines);
@@ -142,6 +150,18 @@ export default function App() {
   const [report, setReport] = useState<InspectionReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Chat consultation states
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      sender: 'ai',
+      text: `Hi! I am your AI Safety Inspector. Let's inspect this space together! You can ask me to explain what safety features are present or missing, or click **Run AI Safety Diagnostic** to map all potential compliance hazards.`,
+      timestamp: new Date()
+    }
+  ]);
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isChatTyping, setIsChatTyping] = useState<boolean>(false);
+  const [activeReportTab, setActiveReportTab] = useState<'violations' | 'chat'>('violations');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync preset selections
@@ -154,6 +174,14 @@ export default function App() {
     setReport(null);
     setUserAnswers([]);
     setError(null);
+    setChatMessages([
+      {
+        sender: 'ai',
+        text: `Hi! I have loaded the **${PRESETS[index].name}** profile. Let's inspect this area together! Feel free to ask me to explain the safety parameters, ask clarifying questions, or explain what you see in the space.`,
+        timestamp: new Date()
+      }
+    ]);
+    setActiveReportTab('violations');
   };
 
   const handleCustomGoalToggle = (active: boolean) => {
@@ -189,6 +217,14 @@ export default function App() {
         setSelectedPresetIndex(null);
         setReport(null);
         setUserAnswers([]);
+        setChatMessages([
+          {
+            sender: 'ai',
+            text: `Hi! I've uploaded your custom room image. Select your custom evaluation scenario or instructions, then ask me anything or click **Run AI Safety Diagnostic** to initiate the compliance scan!`,
+            timestamp: new Date()
+          }
+        ]);
+        setActiveReportTab('violations');
       }
     };
     reader.readAsDataURL(file);
@@ -311,6 +347,178 @@ export default function App() {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // Helper to parse basic markdown format from Gemini outputs
+  const parseMarkdown = (text: string) => {
+    return text.split('\n').map((line, idx) => {
+      let processed = line;
+      // Convert bold blocks **text** to strong tags
+      const boldRegex = /\*\*(.*?)\*\*/g;
+      processed = processed.replace(boldRegex, '<strong>$1</strong>');
+      
+      // Convert bullet points starting with - or *
+      if (processed.trim().startsWith('- ') || processed.trim().startsWith('* ')) {
+        const content = processed.trim().substring(2);
+        return (
+          <li key={idx} className="ml-4 list-disc text-xs leading-relaxed text-slate-700 mb-1" dangerouslySetInnerHTML={{ __html: content }} />
+        );
+      }
+      
+      // Convert numbered lists
+      if (/^\d+\.\s/.test(processed.trim())) {
+        const content = processed.trim().replace(/^\d+\.\s/, '');
+        return (
+          <li key={idx} className="ml-4 list-decimal text-xs leading-relaxed text-slate-700 mb-1" dangerouslySetInnerHTML={{ __html: content }} />
+        );
+      }
+      
+      // If empty line, render a small space
+      if (!processed.trim()) {
+        return <div key={idx} className="h-2" />;
+      }
+      
+      return (
+        <p key={idx} className="text-xs leading-relaxed text-slate-700 mb-1.5" dangerouslySetInnerHTML={{ __html: processed }} />
+      );
+    });
+  };
+
+  // Handler to send interactive consultation messages
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!chatInput.trim() || isChatTyping) return;
+
+    const userText = chatInput.trim();
+    setChatInput("");
+
+    const newMessages: ChatMessage[] = [
+      ...chatMessages,
+      { sender: 'user', text: userText, timestamp: new Date() }
+    ];
+    setChatMessages(newMessages);
+    setIsChatTyping(true);
+
+    try {
+      const payload = {
+        image: selectedPresetIndex !== null ? PRESETS[selectedPresetIndex].imageUrl : customImage,
+        messages: newMessages.map(m => ({ sender: m.sender, text: m.text })),
+        instructions,
+        scenarioGoal: isCustomGoalActive ? customGoal : scenarioGoal,
+        currentReport: report
+      };
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error("Safety consultant service is currently unavailable.");
+      }
+
+      const data = await response.json();
+      setChatMessages([
+        ...newMessages,
+        { sender: 'ai', text: data.text || "I was unable to analyze that detail. Could you elaborate?", timestamp: new Date() }
+      ]);
+    } catch (err: any) {
+      console.error(err);
+      setChatMessages([
+        ...newMessages,
+        { sender: 'ai', text: "Error connecting to the safety consulting service. Please verify that your API key is correctly configured in Settings > Secrets.", timestamp: new Date() }
+      ]);
+    } finally {
+      setIsChatTyping(false);
+    }
+  };
+
+  // Reusable Chat UI component
+  const renderChatPanel = (heightClass = "h-[480px]") => {
+    return (
+      <div className={`bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col ${heightClass}`}>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 shrink-0">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">AI Safety Consultation Hub</h3>
+              <p className="text-[10px] text-slate-500">Ask safety questions, verify details, or explain corrections</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const profileName = selectedPresetIndex !== null ? PRESETS[selectedPresetIndex].name : "custom room";
+              setChatMessages([
+                {
+                  sender: 'ai',
+                  text: `Hi! I am your AI Safety Inspector. Let's inspect the **${profileName}** together! Feel free to ask me to explain compliance standards, ask clarifying questions, or let me know what objects are actually in the space.`,
+                  timestamp: new Date()
+                }
+              ]);
+            }}
+            className="text-[10px] text-slate-500 hover:text-slate-800 border border-slate-200 px-2 py-1 rounded-md bg-slate-50 transition-colors"
+          >
+            Reset Chat
+          </button>
+        </div>
+
+        {/* Chat Message Stream */}
+        <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4 scrollbar-thin">
+          {chatMessages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-xs ${
+                  msg.sender === 'user'
+                    ? 'bg-slate-900 text-white rounded-tr-none'
+                    : 'bg-slate-100 text-slate-800 rounded-tl-none border border-slate-200/50'
+                }`}
+              >
+                <div className="space-y-1">
+                  {parseMarkdown(msg.text)}
+                </div>
+                <span className={`text-[8px] mt-1.5 block text-right ${msg.sender === 'user' ? 'text-slate-400' : 'text-slate-500 font-mono'}`}>
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+          ))}
+          {isChatTyping && (
+            <div className="flex justify-start">
+              <div className="bg-slate-100 border border-slate-200/50 text-slate-800 rounded-2xl rounded-tl-none px-4 py-3 shadow-xs">
+                <div className="flex items-center gap-1.5 py-1 px-1.5">
+                  <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Message Input Bar */}
+        <form onSubmit={handleSendMessage} className="flex gap-2 shrink-0">
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Ask a question, explain room features, or discuss missing gear..."
+            disabled={isChatTyping}
+            className="flex-1 text-xs px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 bg-white"
+          />
+          <button
+            type="submit"
+            disabled={isChatTyping || !chatInput.trim()}
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl flex items-center justify-center transition-colors shrink-0 disabled:bg-slate-200 disabled:cursor-not-allowed"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+    );
   };
 
   // Handle answering doubt questions
@@ -545,8 +753,41 @@ export default function App() {
           {/* CENTER COLUMN: CAMERA & SENSOR VIEW */}
           <section className="lg:col-span-8 space-y-6">
             
-            {/* Vision Stage Card */}
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            {/* Main Inspection Mode Tabs */}
+            <div className="flex bg-slate-200/60 p-1.5 rounded-xl border border-slate-200/80 gap-1.5">
+              <button
+                onClick={() => setSessionMode('static')}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  sessionMode === 'static'
+                    ? 'bg-white text-slate-900 shadow-md ring-1 ring-slate-900/5'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                <span>Static Photo Analysis</span>
+              </button>
+              <button
+                onClick={() => setSessionMode('live')}
+                className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                  sessionMode === 'live'
+                    ? 'bg-slate-900 text-yellow-300 shadow-md ring-1 ring-yellow-400/25'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <div className="relative flex h-2.5 w-2.5">
+                  <span className={`absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 ${sessionMode === 'live' ? 'animate-ping' : ''}`}></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                </div>
+                <span>Live Real-Time AV Inspector</span>
+              </button>
+            </div>
+
+            {sessionMode === 'live' ? (
+              <LiveAVSession instructions={instructions} scenarioGoal={scenarioGoal} />
+            ) : (
+              <>
+                {/* Vision Stage Card */}
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               <div className="border-b border-slate-200 px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
@@ -753,6 +994,13 @@ export default function App() {
                   <h4 className="font-semibold text-sm">Diagnostic Error</h4>
                   <p className="text-xs mt-0.5 leading-relaxed">{error}</p>
                 </div>
+              </div>
+            )}
+
+            {/* If no report has been generated yet, show the Chat Consulting Panel to allow immediate talking/questioning */}
+            {!report && getCurrentImageUrl() && (
+              <div className="mt-6">
+                {renderChatPanel("h-[500px]")}
               </div>
             )}
 
@@ -991,102 +1239,135 @@ export default function App() {
 
                 </div>
 
-                {/* SUB-COLUMN 2: DETAILED LIST OF VIOLATIONS & RECOMMENDATIONS */}
+                {/* SUB-COLUMN 2: DETAILED LIST OF VIOLATIONS & RECOMMENDATIONS OR CONSULTATION CHAT */}
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 h-full flex flex-col">
+                  {/* Tab Selector */}
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                    <h3 className="font-bold text-slate-950 text-xs uppercase tracking-wider">Mapped Safety Violations</h3>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={handlePrint}
-                        className="p-1 text-slate-400 hover:text-slate-950 rounded transition-colors"
-                        title="Print Compliance Report"
+                    <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button
+                        onClick={() => setActiveReportTab('violations')}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
+                          activeReportTab === 'violations' 
+                            ? 'bg-white text-slate-900 shadow-sm font-bold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
                       >
-                        <Printer className="w-4 h-4" />
+                        <ShieldAlert className="w-3.5 h-3.5 text-red-500" />
+                        Detected Hazards
                       </button>
-                      <span className="text-[10px] bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-bold">
-                        {report.violations.length} Detected
-                      </span>
+                      <button
+                        onClick={() => setActiveReportTab('chat')}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
+                          activeReportTab === 'chat' 
+                            ? 'bg-white text-slate-900 shadow-sm font-bold' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                        AI Compliance Chat
+                      </button>
                     </div>
+
+                    {activeReportTab === 'violations' && (
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={handlePrint}
+                          className="p-1 text-slate-400 hover:text-slate-950 rounded transition-colors"
+                          title="Print Compliance Report"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                        <span className="text-[10px] bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-full font-bold">
+                          {report.violations.length} Detected
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {report.violations.length > 0 ? (
-                    <div className="space-y-4 overflow-y-auto max-h-[640px] pr-1">
-                      {report.violations.map((v) => {
-                        const isHovered = activeMarkerId === v.id;
-                        const severityClass = 
-                          v.severity === 'CRITICAL' ? 'border-l-4 border-l-red-500 bg-red-50/20' :
-                          v.severity === 'WARNING' ? 'border-l-4 border-l-amber-500 bg-amber-50/20' :
-                          'border-l-4 border-l-blue-500 bg-blue-50/20';
+                  {activeReportTab === 'violations' ? (
+                    report.violations.length > 0 ? (
+                      <div className="space-y-4 overflow-y-auto max-h-[640px] pr-1">
+                        {report.violations.map((v) => {
+                          const isHovered = activeMarkerId === v.id;
+                          const severityClass = 
+                            v.severity === 'CRITICAL' ? 'border-l-4 border-l-red-500 bg-red-50/20' :
+                            v.severity === 'WARNING' ? 'border-l-4 border-l-amber-500 bg-amber-50/20' :
+                            'border-l-4 border-l-blue-500 bg-blue-50/20';
 
-                        return (
-                          <div 
-                            key={v.id}
-                            onMouseEnter={() => setActiveMarkerId(v.id)}
-                            onMouseLeave={() => setActiveMarkerId(null)}
-                            className={`p-4 border border-slate-200/80 rounded-xl transition-all duration-200 cursor-pointer ${severityClass} ${
-                              isHovered ? 'ring-1 ring-slate-400 shadow-md translate-x-1' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <span className="text-[9px] font-mono text-slate-400 block uppercase tracking-wider mb-0.5">
-                                  {v.category} &bull; {v.complianceStandard}
+                          return (
+                            <div 
+                              key={v.id}
+                              onMouseEnter={() => setActiveMarkerId(v.id)}
+                              onMouseLeave={() => setActiveMarkerId(null)}
+                              className={`p-4 border border-slate-200/80 rounded-xl transition-all duration-200 cursor-pointer ${severityClass} ${
+                                isHovered ? 'ring-1 ring-slate-400 shadow-md translate-x-1' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <span className="text-[9px] font-mono text-slate-400 block uppercase tracking-wider mb-0.5">
+                                    {v.category} &bull; {v.complianceStandard}
+                                  </span>
+                                  <h4 className="font-bold text-xs text-slate-950 flex items-center gap-2 leading-tight">
+                                    {v.title}
+                                    {v.severity === 'CRITICAL' && <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />}
+                                  </h4>
+                                </div>
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded ${
+                                  v.severity === 'CRITICAL' ? 'bg-red-100 text-red-800' :
+                                  v.severity === 'WARNING' ? 'bg-amber-100 text-amber-800' :
+                                  'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {v.severity}
                                 </span>
-                                <h4 className="font-bold text-xs text-slate-950 flex items-center gap-2 leading-tight">
-                                  {v.title}
-                                  {v.severity === 'CRITICAL' && <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />}
-                                </h4>
                               </div>
-                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded ${
-                                v.severity === 'CRITICAL' ? 'bg-red-100 text-red-800' :
-                                v.severity === 'WARNING' ? 'bg-amber-100 text-amber-800' :
-                                'bg-blue-100 text-blue-800'
-                              }`}>
-                                {v.severity}
-                              </span>
-                            </div>
 
-                            <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                              {v.description}
-                            </p>
-
-                            <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] bg-white border border-slate-100 p-2 rounded-lg font-medium">
-                              <div>
-                                <span className="text-slate-400 block font-normal">Approx. Location:</span>
-                                <span className="text-slate-700 truncate block">{v.estimatedLocation}</span>
-                              </div>
-                              <div>
-                                <span className="text-slate-400 block font-normal">Sensing Coordinates:</span>
-                                <span className="text-slate-700 font-mono block">X:{v.coordinate.x}% Y:{v.coordinate.y}%</span>
-                              </div>
-                            </div>
-
-                            <div className="mt-3 pt-2.5 border-t border-slate-200/60 text-[11px]">
-                              <span className="font-bold text-slate-800 flex items-center gap-1">
-                                <CornerDownRight className="w-3.5 h-3.5 text-indigo-500" />
-                                Recommended Correction:
-                              </span>
-                              <p className="text-slate-500 mt-0.5 leading-relaxed font-normal">
-                                {v.recommendation}
+                              <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                                {v.description}
                               </p>
+
+                              <div className="grid grid-cols-2 gap-2 mt-3 text-[10px] bg-white border border-slate-100 p-2 rounded-lg font-medium">
+                                <div>
+                                  <span className="text-slate-400 block font-normal">Approx. Location:</span>
+                                  <span className="text-slate-700 truncate block">{v.estimatedLocation}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block font-normal">Sensing Coordinates:</span>
+                                  <span className="text-slate-700 font-mono block">X:{v.coordinate.x}% Y:{v.coordinate.y}%</span>
+                                </div>
+                              </div>
+
+                              <div className="mt-3 pt-2.5 border-t border-slate-200/60 text-[11px]">
+                                <span className="font-bold text-slate-800 flex items-center gap-1">
+                                  <CornerDownRight className="w-3.5 h-3.5 text-indigo-500" />
+                                  Recommended Correction:
+                                </span>
+                                <p className="text-slate-500 mt-0.5 leading-relaxed font-normal">
+                                  {v.recommendation}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
+                        <CheckCircle className="w-12 h-12 text-emerald-500 mb-3" />
+                        <h4 className="font-bold text-sm text-slate-800">No Safety Violations Detected</h4>
+                        <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
+                          The AI inspection model scanned all visual boundaries and did not identify any compliance failures matching your active scenario or instructions.
+                        </p>
+                      </div>
+                    )
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
-                      <CheckCircle className="w-12 h-12 text-emerald-500 mb-3" />
-                      <h4 className="font-bold text-sm text-slate-800">No Safety Violations Detected</h4>
-                      <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-                        The AI inspection model scanned all visual boundaries and did not identify any compliance failures matching your active scenario or instructions.
-                      </p>
-                    </div>
+                    /* Render high-fidelity chat consultation */
+                    renderChatPanel("h-[600px]")
                   )}
                 </div>
-
               </div>
             )}
+          </>
+        )}
 
           </section>
 

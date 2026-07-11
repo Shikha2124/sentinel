@@ -2,8 +2,9 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import dotenv from 'dotenv';
+import { WebSocketServer } from 'ws';
 
 dotenv.config();
 
@@ -188,6 +189,119 @@ You must respond with a JSON object that strictly adheres to the following JSON 
     }
   });
 
+  // API Endpoint: Interactive Safety Compliance Chat
+  app.post('/api/chat', async (req, res) => {
+    try {
+      const { image, messages, instructions, scenarioGoal, currentReport } = req.body;
+
+      const currentApiKey = process.env.GEMINI_API_KEY;
+      if (!currentApiKey) {
+        return res.status(500).json({ 
+          error: 'GEMINI_API_KEY is not configured. Please add it in Settings > Secrets.' 
+        });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: currentApiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      // Prepare image part if available
+      let mimeType = 'image/jpeg';
+      let base64Data = '';
+
+      if (image && !image.startsWith('http://') && !image.startsWith('https://')) {
+        const matches = image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+        if (matches) {
+          mimeType = matches[1];
+          base64Data = matches[2];
+        } else {
+          base64Data = image;
+        }
+      } else if (image) {
+        try {
+          const fetchResponse = await fetch(image);
+          const arrayBuffer = await fetchResponse.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          mimeType = fetchResponse.headers.get('content-type') || 'image/jpeg';
+          base64Data = buffer.toString('base64');
+        } catch (fetchErr) {
+          console.error('Failed to fetch image for chat context:', fetchErr);
+        }
+      }
+
+      const imagePart = base64Data ? {
+        inlineData: {
+          mimeType,
+          data: base64Data,
+        },
+      } : null;
+
+      // Map chat history
+      const contents: any[] = [];
+      if (messages && Array.isArray(messages)) {
+        messages.forEach((msg: any, idx: number) => {
+          const role = msg.sender === 'user' ? 'user' : 'model';
+          const parts: any[] = [{ text: msg.text }];
+          
+          // Attach image to the first user message so the model sees the room
+          if (idx === 0 && role === 'user' && imagePart) {
+            parts.unshift(imagePart);
+          }
+          
+          contents.push({ role, parts });
+        });
+      }
+
+      // Fallback if no messages are present yet
+      if (contents.length === 0) {
+        const parts: any[] = [{ text: "Introduce yourself as my AI safety assistant and summarize the room/area's safety highlights and potential issues." }];
+        if (imagePart) {
+          parts.unshift(imagePart);
+        }
+        contents.push({ role: 'user', parts });
+      }
+
+      // Specialized system instruction for chat
+      const systemInstruction = `You are a professional, helpful, and friendly AI Safety Inspector.
+The user is currently inspecting a room or area for safety compliance.
+Here is the context of this inspection:
+- Scenario Goal: "${scenarioGoal}"
+- Inspection Guidelines: "${instructions}"
+${currentReport ? `- Current Active Inspection Report Status: Safety Score: ${currentReport.safetyScore}%, Suitability: ${currentReport.suitability}. Reasoning: ${currentReport.suitabilityReason}` : ''}
+
+Your instructions for this conversation are:
+1. Talk directly to the user to explain what is in the room/area (such as compliant safety equipment, hazards, layout elements) and what is NOT in the room/area (such as missing fire escapes, missing signage, missing GFCI outlets, lack of fire extinguishers, or other guidelines from the instructions that you don't see).
+2. Answer all user questions clearly and constructively with actionable safety tips.
+3. Ask the user clarifying questions about things that are visually obscured, unclear, or require local knowledge (e.g., "I see some cables near the desk, are those secured?", "Is there a backup power system in this room?").
+4. Listen to the user's explanations or corrections! If the user explains "Actually, that red canister is a fire extinguisher, not a trash can" or "That is a low-voltage outlet", say "Thank you for the correction!", update your understanding, and explain how that changes the safety situation.
+5. Keep your tone helpful, professional, polite, and reassuring. Avoid overly dry developer jargon or marketing hype. Use markdown for lists and bolding.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents,
+        config: {
+          systemInstruction,
+        }
+      });
+
+      const responseText = response.text;
+      if (!responseText) {
+        return res.status(500).json({ error: 'Gemini returned an empty chat response.' });
+      }
+
+      return res.json({ text: responseText });
+
+    } catch (err: any) {
+      console.error('Chat Error:', err);
+      return res.status(500).json({ error: err.message || 'An error occurred during chat consultation.' });
+    }
+  });
+
   // Serve static files / Vite middleware
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static('dist'));
@@ -202,8 +316,134 @@ You must respond with a JSON object that strictly adheres to the following JSON 
     app.use(vite.middlewares);
   }
 
-  app.listen(3000, '0.0.0.0', () => {
+  const server = app.listen(3000, '0.0.0.0', () => {
     console.log('Server is running on port 3000');
+  });
+
+  const wss = new WebSocketServer({ server });
+
+  wss.on('connection', (ws) => {
+    console.log('WebSocket client connected for Live Inspection');
+    let session: any = null;
+
+    ws.on('message', async (messageData) => {
+      try {
+        const msg = JSON.parse(messageData.toString());
+
+        if (msg.type === 'init') {
+          const { instructions, scenarioGoal } = msg;
+          console.log('Initializing Gemini Live API with instructions and scenario goal');
+
+          const currentApiKey = process.env.GEMINI_API_KEY;
+          if (!currentApiKey) {
+            ws.send(JSON.stringify({ error: 'GEMINI_API_KEY is not configured in Settings > Secrets.' }));
+            return;
+          }
+
+          const ai = new GoogleGenAI({
+            apiKey: currentApiKey,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build',
+              },
+            },
+          });
+
+          // Establish Live connection
+          try {
+            session = await ai.live.connect({
+              model: "gemini-3.1-flash-live-preview",
+              callbacks: {
+                onmessage: (message: any) => {
+                  // Forward audio output to client
+                  const audio = message.serverContent?.modelTurn?.parts?.find((p: any) => p.inlineData?.data)?.inlineData?.data || message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                  if (audio) {
+                    ws.send(JSON.stringify({ audio }));
+                  }
+
+                  // Forward bot spoken text (subtitles) to client
+                  const text = message.serverContent?.modelTurn?.parts?.find((p: any) => p.text)?.text;
+                  if (text) {
+                    ws.send(JSON.stringify({ text }));
+                  }
+
+                  // Forward user transcribed text (user subtitles) to client
+                  const userText = message.serverContent?.userTurn?.parts?.find((p: any) => p.text)?.text;
+                  if (userText) {
+                    ws.send(JSON.stringify({ userText }));
+                  }
+
+                  if (message.serverContent?.interrupted) {
+                    ws.send(JSON.stringify({ interrupted: true }));
+                  }
+                },
+                onclose: () => {
+                  console.log('Gemini Live session closed');
+                  ws.send(JSON.stringify({ status: 'closed' }));
+                },
+                onerror: (err: any) => {
+                  console.error('Gemini Live error:', err);
+                  ws.send(JSON.stringify({ error: err.message || 'Gemini Live encountered an error.' }));
+                }
+              },
+              config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                  voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+                },
+                outputAudioTranscription: {},
+                inputAudioTranscription: {},
+                systemInstruction: `You are a professional, friendly, and helpful AI Safety Inspector.
+The user is currently inspecting a room or area for safety compliance in real-time via live video and audio.
+Here is the context of this live inspection:
+- Scenario Goal: "${scenarioGoal}"
+- Inspection Guidelines/Instructions to enforce: "${instructions}"
+
+Your instructions for this live conversation are:
+1. Explain what is in the room/area (compliant safety equipment, hazards, layout elements) and what is NOT in the room/area (missing fire escapes, lack of signage, lack of fire extinguishers, etc.) based on the live video stream frames they are sending you.
+2. Answer all user questions clearly and constructively with actionable safety tips.
+3. Keep your responses short, concise, energetic, and polite. Since this is an audio conversation, avoid long lists or paragraphs. Speak in short, punchy sentences.
+4. Listen to the user's explanations or corrections! If they explain or correct you, say "Thank you for the correction!", update your understanding, and adapt.
+5. Ask clarifying questions about things that are visually obscured or unclear in the video.
+6. Keep your tone reassuring, helpful, and professional.`
+              }
+            });
+
+            console.log('Gemini Live session connected successfully');
+            ws.send(JSON.stringify({ status: 'connected' }));
+
+          } catch (connErr: any) {
+            console.error('Error connecting to Gemini Live:', connErr);
+            ws.send(JSON.stringify({ error: `Failed to connect to Gemini Live: ${connErr.message || connErr}` }));
+          }
+        } else if (msg.audio) {
+          if (session) {
+            session.sendRealtimeInput({
+              audio: { data: msg.audio, mimeType: 'audio/pcm;rate=16000' }
+            });
+          }
+        } else if (msg.video) {
+          if (session) {
+            session.sendRealtimeInput({
+              video: { data: msg.video, mimeType: 'image/jpeg' }
+            });
+          }
+        }
+      } catch (err: any) {
+        console.error('Error handling WebSocket message:', err);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected');
+      if (session) {
+        try {
+          session.close();
+        } catch (closeErr) {
+          console.error('Error closing Gemini Live session:', closeErr);
+        }
+      }
+    });
   });
 }
 
