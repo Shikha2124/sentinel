@@ -588,7 +588,8 @@ export default function App() {
   const handlePortalSelectScenario = (index: number) => {
     setSelectedPresetIndex(index);
     setScenarioGoal(PRESETS[index].goal);
-    setCurrentImage(null);
+    setInstructions(PRESETS[index].guidelines);
+    setCustomImage(null);
     setReport(null);
     setUserAnswers([]);
     setActiveReportTab('violations');
