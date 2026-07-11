@@ -97,7 +97,7 @@ Analyze the room or area and identify:
    - "NOT_SUITABLE": Room cannot be safely used for this purpose under current conditions.
 3. A clear, thorough description of the suitability reasoning.
 4. Structural Integrity status ("PASS", "WARNING", "FAIL") and detailed findings.
-5. Environmental Compliance status ("PASS", "WARNING", "FAIL") and detailed findings (e.g. ventilation, temperature, thermal hazards, airflow).
+5. Environmental Compliance status ("PASS", "WARNING", "FAIL") and detailed findings (e.g. ventilation, temperature, airflow).
 6. A list of concrete safety violations or hazards. For each violation, specify:
    - Category (e.g. Electrical, Fire Safety, Structural, Obstruction, Mechanical, Chemical, Environmental)
    - Title (short descriptive name, e.g., "Blocked Emergency Exit")
