@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { inspect } from "../lib/api";
+import { printReport } from "../lib/printReport";
 import type { InspectionReport } from "../lib/data";
 
 interface Props {
@@ -36,6 +37,7 @@ export default function LiveScreen({ instructions, scenarioGoal, onBack }: Props
   const [report, setReport] = useState<InspectionReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [capturedFrame, setCapturedFrame] = useState<string | null>(null);
 
   useEffect(() => {
     start();
@@ -192,6 +194,7 @@ export default function LiveScreen({ instructions, scenarioGoal, onBack }: Props
   const end = async () => {
     const frame = captureFrame();
     stop();
+    setCapturedFrame(frame);
     setShowReport(true);
     setReportLoading(true);
     setReportError(null);
@@ -246,6 +249,8 @@ export default function LiveScreen({ instructions, scenarioGoal, onBack }: Props
           report={report}
           loading={reportLoading}
           error={reportError}
+          scenarioGoal={scenarioGoal}
+          imageUrl={capturedFrame}
           onClose={onBack}
         />
       )}
@@ -285,7 +290,7 @@ function Reticle({ live }: { live: boolean }) {
   );
 }
 
-function ReportPopup({ report, loading, error, onClose }: { report: InspectionReport | null; loading: boolean; error: string | null; onClose: () => void; }) {
+function ReportPopup({ report, loading, error, scenarioGoal, imageUrl, onClose }: { report: InspectionReport | null; loading: boolean; error: string | null; scenarioGoal: string; imageUrl: string | null; onClose: () => void; }) {
   const scoreColor = report ? (report.safetyScore >= 80 ? "var(--ok)" : report.safetyScore >= 50 ? "#c77d18" : "var(--crit)") : "var(--text-3)";
   const suit = report?.suitability;
   const suitStyle =
@@ -310,7 +315,7 @@ function ReportPopup({ report, loading, error, onClose }: { report: InspectionRe
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
-              onClick={() => window.print()} aria-label="Export / print report" disabled={!report}
+              onClick={() => report && printReport(report, { scenarioGoal, imageUrl })} aria-label="Export / print report" disabled={!report}
               style={{ border: "none", background: "var(--card)", width: 32, height: 32, borderRadius: "50%", color: "var(--text-2)", fontSize: 17, cursor: report ? "pointer" : "not-allowed", opacity: report ? 1 : 0.4, display: "flex", alignItems: "center", justifyContent: "center" }}
             >
               <i className="ti ti-printer" aria-hidden="true"></i>
@@ -326,9 +331,10 @@ function ReportPopup({ report, loading, error, onClose }: { report: InspectionRe
 
         <div style={{ overflowY: "auto", padding: "16px 18px 24px" }}>
           {loading && (
-            <div style={{ textAlign: "center", padding: "40px 10px" }}>
-              <i className="ti ti-loader-2 spin" style={{ fontSize: 30, color: "var(--accent)" }} aria-hidden="true"></i>
-              <p style={{ fontSize: 13, color: "var(--text-2)", marginTop: 12 }}>Compiling the safety report from your walkthrough…</p>
+            <div style={{ minHeight: 240, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px 10px" }}>
+              <i className="ti ti-loader-2 spin" style={{ fontSize: 34, color: "var(--accent)" }} aria-hidden="true"></i>
+              <p style={{ fontSize: 14, fontWeight: 600, marginTop: 14 }}>Generating report…</p>
+              <p style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 4, maxWidth: 260, lineHeight: 1.5 }}>Compiling the safety report from your walkthrough.</p>
             </div>
           )}
 
@@ -396,9 +402,11 @@ function ReportPopup({ report, loading, error, onClose }: { report: InspectionRe
             </>
           )}
 
-          <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={onClose}>
-            <i className="ti ti-check" aria-hidden="true"></i> Done
-          </button>
+          {!loading && (
+            <button className="btn btn-ghost" style={{ marginTop: 16 }} onClick={onClose}>
+              <i className="ti ti-check" aria-hidden="true"></i> Done
+            </button>
+          )}
         </div>
       </div>
     </div>
