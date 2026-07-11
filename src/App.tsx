@@ -7,7 +7,6 @@ import {
   AlertTriangle, 
   Activity, 
   Flame, 
-  Thermometer, 
   Upload, 
   RefreshCw, 
   CheckCircle, 
@@ -38,52 +37,24 @@ const PRESETS = [
     goal: "Verify suitability for a 50-person high-occupancy open-office workspace.",
     imageUrl: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80",
     guidelines: "1. Verify egress paths and fire escape routes can accommodate high occupant load (50 people).\n2. Check ventilation density, air-conditioning volume, and lighting conditions.\n3. Identify power-strip daisy-chaining and electrical outlet distribution overload risk.\n4. Scan for structural pillars, tripping hazards, or corridor bottlenecks.\n5. Inspect ceiling tile integrity and potential water leakage spots.",
-    thermalConfig: {
-      ambient: "22°C",
-      hotSpots: [
-        { label: "Overloaded Multi-plug Outlet", temp: "42°C", x: 74, y: 78 },
-        { label: "Server Rack Vent (Ambient)", temp: "35°C", x: 12, y: 45 }
-      ]
-    }
   },
   {
     name: "High-Density IT Server Room setup",
     goal: "Verify suitability for installing a high-density, high-load IT Server Room.",
     imageUrl: "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=1200&q=80",
     guidelines: "1. Evaluate dedicated HVAC system, cooling inlets, and thermal airflow channels.\n2. Inspect for nearby overhead plumbing, structural condensation, or fluid leakage hazards.\n3. Check routing of fiber and high-voltage cable trays to avoid safety interference.\n4. Verify electronic lock and access-control security options on the doorway.\n5. Scan ceiling for dust buildup, and verify chemical-based fire suppression system options.",
-    thermalConfig: {
-      ambient: "18°C",
-      hotSpots: [
-        { label: "Main Switchboard Hub", temp: "68°C", x: 82, y: 18 },
-        { label: "Primary Cooling Intake", temp: "14°C", x: 45, y: 5 }
-      ]
-    }
   },
   {
     name: "Commercial Kitchen & Food-Prep Area",
     goal: "Verify suitability for high-heat commercial kitchen conversion.",
     imageUrl: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&w=1200&q=80",
     guidelines: "1. Scan for commercial-grade range exhaust ventilation and hood safety options.\n2. Inspect floor pathways for wet drainage capacity and non-slip floor materials.\n3. Check electrical socket ground-fault protection (GFCI) near sanitation sink locations.\n4. Look for appropriate clearances around heat-generating stove equipment.\n5. Confirm fire-suppression triggers and manual emergency gas shutoff valve clearance.",
-    thermalConfig: {
-      ambient: "26°C",
-      hotSpots: [
-        { label: "Gas Range Cooktop (Idle)", temp: "95°C", x: 34, y: 58 },
-        { label: "Electrical Sub-panel", temp: "48°C", x: 88, y: 32 }
-      ]
-    }
   },
   {
     name: "Heavy-Duty Industrial Storage & Warehouse",
     goal: "Verify structural integrity and environmental safety for heavy-duty industrial storage.",
     imageUrl: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80",
     guidelines: "1. Scan columns, ceiling beams, and concrete support beams for structural stress cracks.\n2. Assess high-bay lighting fixture mount safety and clearance heights.\n3. Inspect concrete flooring slabs for settlement, moisture, or expansion fractures.\n4. Check emergency exit pathway clearances, roll-up loading dock guards, and signage.\n5. Look for proper natural draft cross-ventilation to prevent high-density gas buildup.",
-    thermalConfig: {
-      ambient: "20°C",
-      hotSpots: [
-        { label: "Ceiling Transformer", temp: "52°C", x: 50, y: 15 },
-        { label: "Compressor Vent Outlet", temp: "38°C", x: 18, y: 82 }
-      ]
-    }
   }
 ];
 
@@ -142,7 +113,6 @@ export default function App() {
   const [isCustomGoalActive, setIsCustomGoalActive] = useState<boolean>(false);
 
   // App interaction states
-  const [visionMode, setVisionMode] = useState<'normal' | 'thermal'>('normal');
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [activeMarkerId, setActiveMarkerId] = useState<string | null>(null);
@@ -663,7 +633,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">AI Safety Inspector</h1>
-              <p className="text-xs text-slate-500">Multimodal Computer Vision &amp; Thermal Compliance Analyzer</p>
+              <p className="text-xs text-slate-500">Multimodal Computer Vision &amp; Compliance Analyzer</p>
             </div>
           </div>
           
@@ -898,26 +868,10 @@ export default function App() {
                 {/* Vision Mode Selector */}
                 <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 self-start sm:self-auto">
                   <button
-                    onClick={() => setVisionMode('normal')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
-                      visionMode === 'normal' 
-                        ? 'bg-white text-slate-900 shadow-sm' 
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 bg-white text-slate-900 shadow-sm`}
                   >
                     <Layers className="w-3.5 h-3.5" />
                     Optical Lens
-                  </button>
-                  <button
-                    onClick={() => setVisionMode('thermal')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 ${
-                      visionMode === 'thermal' 
-                        ? 'bg-[#1e1b4b] text-yellow-300 shadow-sm ring-1 ring-yellow-400/20' 
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Thermometer className="w-3.5 h-3.5" />
-                    Thermal Sensor
                   </button>
                 </div>
               </div>
@@ -929,41 +883,9 @@ export default function App() {
                     <img 
                       src={getCurrentImageUrl()!} 
                       alt="Room Diagnostic Stage" 
-                      className={`w-full h-full object-cover transition-all duration-300 ${
-                        visionMode === 'thermal' 
-                          ? 'grayscale-40 contrast-125 brightness-90 saturate-150 filter' 
-                          : ''
-                      }`}
+                      className={`w-full h-full object-cover transition-all duration-300`}
                     />
                     
-                    {/* Simulated Thermal Heat Overlay */}
-                    {visionMode === 'thermal' && (
-                      <>
-                        <div className="absolute inset-0 bg-gradient-to-tr from-[#120038]/60 via-[#4c1d95]/70 via-[#b91c1c]/50 to-[#fbbf24]/50 mix-blend-color-dodge opacity-85 pointer-events-none" />
-                        <div className="absolute inset-0 bg-gradient-to-tr from-[#020617]/50 via-transparent to-[#fbbf24]/20 mix-blend-color opacity-80 pointer-events-none" />
-                        
-                        {/* Preset Hot Spots Indicators */}
-                        {selectedPresetIndex !== null && PRESETS[selectedPresetIndex].thermalConfig.hotSpots.map((spot, i) => (
-                          <div 
-                            key={i} 
-                            style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-                            className="absolute -translate-x-1/2 -translate-y-1/2 group/spot z-10"
-                          >
-                            <span className="absolute inline-flex h-6 w-6 rounded-full bg-yellow-400 opacity-75 animate-ping" />
-                            <div className="w-4 h-4 rounded-full bg-red-500 border border-white cursor-pointer relative flex items-center justify-center shadow-md">
-                              <Flame className="w-2.5 h-2.5 text-white animate-pulse" />
-                            </div>
-                            
-                            {/* Hot Spot Tooltip */}
-                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-slate-900 border border-yellow-400 text-white p-2 rounded-md shadow-lg text-[10px] font-mono whitespace-nowrap opacity-100 transition-opacity z-20">
-                              <p className="font-semibold text-yellow-400">{spot.label}</p>
-                              <p className="text-slate-300 font-bold mt-0.5">Temp: {spot.temp}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
                     {/* Safety Violation Overlay Markers (Optical Mode) */}
                     {report && report.violations && report.violations.map((violation) => {
                       const isSelected = activeMarkerId === violation.id;
@@ -1016,24 +938,6 @@ export default function App() {
                       );
                     })}
 
-                    {/* Thermal Overlay Marker Labels in Thermal Mode */}
-                    {visionMode === 'thermal' && report && report.violations && report.violations.map((violation) => {
-                      // Estimate hypothetical thermographics for violations
-                      const pseudoTemp = violation.severity === 'CRITICAL' ? "72°C - overheating risk" : "44°C - high ambient";
-                      return (
-                        <div
-                          key={`thermal-${violation.id}`}
-                          style={{ left: `${violation.coordinate.x}%`, top: `${violation.coordinate.y}%` }}
-                          className="absolute -translate-x-1/2 -translate-y-1/2 z-20"
-                        >
-                          <div className="w-3 h-3 rounded-full bg-red-600 border border-white flex items-center justify-center animate-ping" />
-                          <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-950/90 text-yellow-300 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border border-yellow-400/30 whitespace-nowrap pointer-events-none">
-                            {pseudoTemp}
-                          </div>
-                        </div>
-                      );
-                    })}
-
                   </div>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-slate-400 border border-dashed border-slate-800 rounded-lg">
@@ -1072,13 +976,10 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <Info className="w-4 h-4 text-slate-500 shrink-0" />
                     <p className="leading-relaxed">
-                      {visionMode === 'normal' 
-                        ? "Hover over violation circles ( ! ) on the image to locate and isolate risk details in real-time."
-                        : "Simulated infrared heat thermographics based on environmental compliance guidelines. Hot-spots indicate temperature leakage."
-                      }
+                      Hover over violation circles ( ! ) on the image to locate and isolate risk details in real-time.
                     </p>
                   </div>
-                  {visionMode === 'normal' && report && (
+                  {report && (
                     <span className="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full font-bold uppercase shrink-0">
                       {report.violations.length} Hazards Mapped
                     </span>
@@ -1197,7 +1098,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Environmental & Thermal */}
+                    {/* Environmental */}
                     <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100">
                       <div className="mt-0.5">
                         {report.environmentalCompliance.status === 'PASS' ? (
@@ -1210,7 +1111,7 @@ export default function App() {
                       </div>
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-1.5">
-                          <h4 className="font-semibold text-xs text-slate-950">Environmental / Thermal</h4>
+                          <h4 className="font-semibold text-xs text-slate-950">Environmental</h4>
                           <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded ${
                             report.environmentalCompliance.status === 'PASS' ? 'bg-emerald-100 text-emerald-800' :
                             report.environmentalCompliance.status === 'WARNING' ? 'bg-amber-100 text-amber-800' :
@@ -1499,7 +1400,7 @@ export default function App() {
             <p className="text-xs text-gray-600 mt-1">{report?.structuralIntegrity.details}</p>
           </div>
           <div className="border p-3 rounded">
-            <p className="font-bold">Environmental / Thermal: {report?.environmentalCompliance.status}</p>
+            <p className="font-bold">Environmental: {report?.environmentalCompliance.status}</p>
             <p className="text-xs text-gray-600 mt-1">{report?.environmentalCompliance.details}</p>
           </div>
         </div>
