@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LiveAVSession from './components/LiveAVSession';
+import SentinelPortal from './components/SentinelPortal';
 import {
   ShieldAlert,
   ShieldCheck,
@@ -28,6 +29,7 @@ import {
   ChevronRight,
   Maximize2,
   FileDown
+, ArrowLeft
 } from 'lucide-react';
 import { exportReportToPDF } from './utils/pdfExport';
 
@@ -131,6 +133,7 @@ interface ChatMessage {
 }
 
 export default function App() {
+  const [isPortalOpen, setIsPortalOpen] = useState<boolean>(true);
   // Config state
   const [sessionMode, setSessionMode] = useState<'static' | 'live'>('static');
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<number | null>(0);
@@ -581,6 +584,29 @@ export default function App() {
     return customImage;
   };
 
+
+  const handlePortalSelectScenario = (index: number) => {
+    setSelectedPresetIndex(index);
+    setScenarioGoal(PRESETS[index].goal);
+    setCurrentImage(null);
+    setReport(null);
+    setUserAnswers([]);
+    setActiveReportTab('violations');
+    setCustomGoal("");
+    setIsCustomGoalActive(false);
+    setIsPortalOpen(false);
+  };
+
+  if (isPortalOpen) {
+    return (
+      <SentinelPortal 
+        presets={PRESETS} 
+        onSelectScenario={handlePortalSelectScenario} 
+        userName="User"
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans antialiased pb-12">
       {/* Header */}
@@ -596,7 +622,14 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex items-center gap-3 self-start md:self-auto">
+            <button
+              onClick={() => setIsPortalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition-colors cursor-pointer mr-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+              <span>Sentinel Portal</span>
+            </button>
             <span className="flex h-2.5 w-2.5 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
