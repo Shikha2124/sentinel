@@ -6,6 +6,7 @@ import { GoogleGenAI, Modality } from '@google/genai';
 import dotenv from 'dotenv';
 import { WebSocketServer } from 'ws';
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
